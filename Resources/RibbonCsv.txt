@@ -1,0 +1,16 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+	<ribbon startFromScratch="false">
+		<tabs>
+			<tab id="CoolCsvTab" label="CoolCsv插件" visible="true" insertAfterMso="TabDeveloper">
+				<group id="Normal" label= "常规设置"> 
+					<checkBox id="CheckBoxSave" label="保存为源文件编码" supertip="保存CSV文件时，保存为源文件编码" getPressed="OnGetPressedCheckBoxSave" onAction="OnCheckBoxSave" />
+					<checkBox id="CheckBoxFreeze" label="自动冻结表头" supertip="打开CSV文件时，自动智能冻结表头" getPressed="OnGetPressedCheckBoxFreeze" onAction="OnCheckBoxFreeze" />
+					<checkBox id="CheckBoxSelect" label="高亮当前行" supertip="打开任意文件时，高亮当前行" getPressed="OnGetPressedCheckBoxSelect" onAction="OnCheckBoxSelect" />
+				</group>
+                <group id="Help" label= "关于"> 
+					<button id="About" label="关于" onAction="About" getImage="GetRibbonImage" size="large"/>
+				</group>
+			</tab>
+		</tabs>
+	</ribbon>
+</customUI>
