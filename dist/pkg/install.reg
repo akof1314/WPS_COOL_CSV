@@ -1,7 +1,7 @@
 Windows Registry Editor Version 5.00
 [HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\Excel\Addins\wps_cool_csv.CoolCsv]
-"FriendlyName"="wps_cool_csv.CoolCsv"
-"Description"="ã€è‡ªå®šä¹‰ä¸­æ–‡æè¿°æ–¹ä¾¿ä»–äººç†è§£ã€‘"
+"FriendlyName"="CoolCsv²å¼ş"
+"Description"="Ò»¸öÄÜ¹»±£´æUnicode±àÂëµÄCSV²å¼ş"
 "LoadBehavior"=dword:00000003
 "CommandLineSafe"=dword:00000001
 [HKEY_CURRENT_USER\Software\Kingsoft\Office\ET\AddinsWL]
