@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Forms;
 using AddInDesignerObjects;
 using Excel;
 using Office;
 using wps_cool_csv.Properties;
+using Application = Excel.Application;
+using FileDialog = Office.FileDialog;
 
 namespace wps_cool_csv
 {
@@ -53,6 +56,80 @@ namespace wps_cool_csv
                 return;
             }
 
+            SaveWorkSheet(wb, saveasui, ref cancel, true);
+        }
+
+        private void AppOnWorkbookBeforeClose(Workbook wb, ref bool cancel)
+        {
+            if (wb.Saved)
+            {
+                fileDict.Remove(wb.FullName);   // 如果保存过，就不会弹出询问，必定关闭
+                return;
+            }
+
+            // 不需要保存处理的话，直接返回
+            if (!SettingsCsv.Default.EnableSaveEncode)
+            {
+                return;
+            }
+
+            string fileName = wb.FullName;
+            if (!fileName.ToLower().EndsWith(".csv"))
+            {
+                return;
+            }
+
+            if (!fileDict.ContainsKey(fileName))
+            {
+                Encoding encoding = GetFileEncoding(fileName);
+                fileDict[fileName] = encoding;
+            }
+
+            Encoding fileEncoding = fileDict[fileName];
+            if (Equals(fileEncoding, Encoding.UTF8) || Equals(fileEncoding, Encoding.Unicode) || Equals(fileEncoding, Encoding.BigEndianUnicode))
+            {
+                // 自己来操作
+                cancel = true;
+
+                // 如果不自己弹窗询问是否保存，在BeforeSave触发的时候，就会对单元簿再次进行打开，造成异常
+                DialogResult result = MessageBox.Show($"是否保存对“{wb.Name}”的更改？", "WPS 表格", MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
+                switch (result)
+                {
+                    case DialogResult.Yes:
+                        bool isCancel = false;
+                        SaveWorkSheet(wb, false, ref isCancel, false);  // 标记不要再打开单元簿
+                        fileDict.Remove(fileName);  // 记得移除，否则下次打开不一定是这个编码
+                        break;
+                    case DialogResult.Cancel:
+                        break;
+                    case DialogResult.No:
+                        wb.Saved = true;
+                        wb.Close(false);
+                        fileDict.Remove(fileName);
+                        break;
+                }
+            }
+        }
+
+        private void AppOnSheetActivate(object sh)
+        {
+            Worksheet worksheet = sh as Worksheet;
+            ResetFormatConditionsHighlight(worksheet);
+        }
+
+        private void AppOnSheetSelectionChange(object sh, Range target)
+        {
+            if (!SettingsCsv.Default.EnableSelectHighlight)
+            {
+                return;
+            }
+
+            target.Calculate();
+        }
+
+        private void SaveWorkSheet(Workbook wb, bool saveasui, ref bool cancel, bool reOpen)
+        {
             // 不需要保存处理的话，直接返回
             if (!SettingsCsv.Default.EnableSaveEncode)
             {
@@ -110,7 +187,7 @@ namespace wps_cool_csv
                     string fileNewName = fileDialog.SelectedItems.Item(1);
                     if (!fileNewName.ToLower().EndsWith(".csv"))
                     {
-                        // 非csv则普通保存，需要标志一下，否则会再进来
+                        // 非csv则普通保存，需要标志一下，否则会再进来，因为文件名是同一个
                         flagSaveAs = true;
                         wb.SaveAs(fileNewName);
                         return;
@@ -127,8 +204,6 @@ namespace wps_cool_csv
                 Range range = sheet.UsedRange;
                 int row = range.Rows.Count;
                 int col = range.Columns.Count;
-                Console.WriteLine(range.Columns.NumberFormat);
-                Console.WriteLine(range.Columns.NumberFormatLocal);
 
                 object[,] tmp = sheet.UsedRange.Value;
                 for (int i = 1; i <= row; i++)
@@ -159,10 +234,24 @@ namespace wps_cool_csv
                     }
                 }
 
-                range = app.ActiveCell;
+                var win = wb.Windows[1];
+                range = win.ActiveCell;
                 row = range.Row;
                 col = range.Column;
-                wb.Close(false);
+                int scrollRow = win.ScrollRow;
+                int scrollCol = win.ScrollColumn;
+
+                // 如果异常，就不用再打开单元簿
+                bool canClose = reOpen;
+                try
+                {
+                    wb.Saved = true;
+                    wb.Close(false);
+                }
+                catch
+                {
+                    canClose = false;
+                }
 
                 // 保存带编码的csv
                 using (StreamWriter sw = new StreamWriter(fileName, false, fileEncoding))
@@ -172,34 +261,20 @@ namespace wps_cool_csv
                     sw.Dispose();
                 }
 
-                app.Workbooks.Open(fileName, null, null, XlFileFormat.xlCSV);
-                sheet = app.ActiveSheet;
-                sheet.UsedRange.Columns.NumberFormat = "@";
-                sheet.Cells[row, col].Select();
-                app.ActiveWorkbook.Saved = true;
+                if (canClose)
+                {
+                    wb = app.Workbooks.Open(fileName);
+                    app.ScreenUpdating = false;
+                    sheet = wb.ActiveSheet;
+                    sheet.UsedRange.Columns.NumberFormat = "@";
+                    sheet.UsedRange.Value = tmp;    // 设置成文本格式后，需要再赋值，否则会出现科学计数
+                    sheet.Cells[row, col].Select();
+                    wb.Windows[1].ScrollColumn = scrollCol;
+                    wb.Windows[1].ScrollRow = scrollRow;
+                    wb.Saved = true;
+                }
                 app.ScreenUpdating = true;
             }
-        }
-
-        private void AppOnWorkbookBeforeClose(Workbook wb, ref bool cancel)
-        {
-            fileDict.Remove(wb.FullName);
-        }
-
-        private void AppOnSheetActivate(object sh)
-        {
-            Worksheet worksheet = sh as Worksheet;
-            ResetFormatConditionsHighlight(worksheet);
-        }
-
-        private void AppOnSheetSelectionChange(object sh, Range target)
-        {
-            if (!SettingsCsv.Default.EnableSelectHighlight)
-            {
-                return;
-            }
-
-            target.Calculate();
         }
 
         private void ResetFormatConditionsHighlight(Worksheet worksheet)
@@ -207,19 +282,26 @@ namespace wps_cool_csv
             if (worksheet != null)
             {
                 app.ScreenUpdating = false;
-                var isSaved = app.ActiveWorkbook.Saved;
+                var isSaved = worksheet.Parent.Saved;
 
                 int count = worksheet.Cells.FormatConditions.Count;
                 for (int i = count; i >= 1; i--)
                 {
-                    FormatCondition formatCondition = worksheet.Cells.FormatConditions.Item(i);
-                    if (formatCondition.Formula1 == "=CELL(\"row\")=ROW()")
+                    try
                     {
-                        formatCondition.Delete();
+                        FormatCondition formatCondition = worksheet.Cells.FormatConditions.Item(i);
+                        if (formatCondition.Formula1 == "=CELL(\"row\")=ROW()")
+                        {
+                            formatCondition.Delete();
+                        }
+                        else if (formatCondition.Formula1 == "=AND(CELL(\"row\")=ROW(),CELL(\"col\")=COLUMN())")
+                        {
+                            formatCondition.Delete();
+                        }
                     }
-                    else if (formatCondition.Formula1 == "=AND(CELL(\"row\")=ROW(),CELL(\"col\")=COLUMN())")
+                    catch (Exception)
                     {
-                        formatCondition.Delete();
+                        // ignored
                     }
                 }
 
@@ -230,7 +312,7 @@ namespace wps_cool_csv
                     FormatCondition formatCondition = worksheet.Cells.FormatConditions.Add(XlFormatConditionType.xlExpression, null, "=CELL(\"row\")=ROW()");
                     formatCondition.Interior.ColorIndex = 37;
                 }
-                app.ActiveWorkbook.Saved = isSaved;
+                worksheet.Parent.Saved = isSaved;
 
                 app.ScreenUpdating = true;
             }
@@ -240,7 +322,7 @@ namespace wps_cool_csv
         {
             if (worksheet != null && SettingsCsv.Default.EnableFreezeHeader)
             {
-                string fileName = app.ActiveWorkbook.FullName;
+                string fileName = worksheet.Parent.FullName;
                 if (!fileName.ToLower().EndsWith(".csv"))
                 {
                     return;
@@ -275,7 +357,7 @@ namespace wps_cool_csv
                 freezeRow++;
                 freezeCol++;
                 sheet.Cells[freezeRow, freezeCol].Select();
-                sheet.Application.ActiveWindow.FreezePanes = true;
+                sheet.Parent.Windows[1].FreezePanes = true;
 
                 app.ScreenUpdating = true;
             }
@@ -334,7 +416,12 @@ namespace wps_cool_csv
         {
             SettingsCsv.Default.EnableSelectHighlight = pressed;
             SettingsCsv.Default.Save();
-            ResetFormatConditionsHighlight(app.ActiveSheet);
+
+            // 高亮当前行，设置改变会对所有的活动工作表处理
+            foreach (Workbook wb in app.Workbooks)
+            {
+                ResetFormatConditionsHighlight(wb.ActiveSheet);
+            }
         }
 
         private static string ConvertToCsvCellString(string value)
