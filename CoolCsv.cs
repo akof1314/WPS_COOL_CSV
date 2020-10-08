@@ -382,7 +382,7 @@ namespace wps_cool_csv
 
         public void About(IRibbonControl ctrl)
         {
-            System.Diagnostics.Process.Start("https://blog.csdn.net/akof1314");
+            System.Diagnostics.Process.Start("https://github.com/akof1314/WPS_COOL_CSV");
         }
 
         public bool OnGetPressedCheckBoxSave(IRibbonControl control)
